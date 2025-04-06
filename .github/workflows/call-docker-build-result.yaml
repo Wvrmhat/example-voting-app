@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - result
     # only build when important files change
     paths:
       - 'result/**'
