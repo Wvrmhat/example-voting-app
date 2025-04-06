@@ -51,7 +51,8 @@ jobs:
       - name: Build and Push to GHCR
         uses: docker/build-push-action@v6
         with:
-          push: true
+          context: ./result
+          push: true         
           tags: ghcr.io/wvrmhat/example-voting-app:${{ github.run_id }}
           cache-from: type=gha 
           cache-to: type=gha,mode=max
