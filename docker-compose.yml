@@ -96,7 +96,7 @@ services:
    depends_on:
       worker:
         condition: service_started
-   command: ["sh", "-c", "RETRY_LIMIT=4; COUNT=0; while ! redis-cli -h redis ping; do echo 'Waiting for Redis...'; sleep 2; done; echo 'Worker started - Redis connected'; exit 1"]
+   command: ["sh", "-c", "RETRY_LIMIT=4; COUNT=0; while ! redis-cli -h redis ping; do echo 'Waiting for Redis...'; sleep 2; done; echo 'Worker started - Redis connected' || exit 1"]
    networks:
       - back-tier
 
