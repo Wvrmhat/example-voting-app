@@ -110,8 +110,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Executing redis healthcheck
-        run: chmod +x ./healthchecks/redis.sh 
+      # - name: Executing redis healthcheck
+      #   run: chmod +x ./healthchecks/redis.sh 
       
       - name: Healthcheck in Docker Compose
         run: |

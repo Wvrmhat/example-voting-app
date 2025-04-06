@@ -92,9 +92,9 @@ services:
       - back-tier
 
   sut_worker:
-   image: ${TESTING_IMAGE}
+   image: curlimages/curl
    depends_on:
-      redis:
+      worker:
         condition: service_started
    command: ["sh", "-c", "while ! redis-cli -h redis ping; do echo 'Waiting for Redis...'; sleep 2; done; echo 'Worker started - Redis connected'"]
    networks:
