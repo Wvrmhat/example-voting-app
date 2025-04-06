@@ -253,7 +253,7 @@ jobs:
             flavor: |
               latest=false
             tags: |
-              type=raw,value=worker_test
+              type=raw,value=worker_99
 
         - name: Docker Build and Push to GHCR and Docker Hub
           uses: docker/build-push-action@v6
