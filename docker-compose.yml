@@ -92,7 +92,7 @@ services:
       - back-tier
 
   sut_worker:
-   image: redis:5.0-alpine3.10
+   image: curlimages/curl
    depends_on:
       worker:
         condition: service_started
