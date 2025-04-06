@@ -76,7 +76,7 @@ services:
    depends_on:
       vote:
         condition: service_started
-   command: ["sh", "-c", "curl --fail http://vote:80 || exit 1"]
+   command: ["sh", "-c", "sleep 8 && curl --fail http://vote:80 || exit 1"]
    networks:
       - front-tier
       - back-tier
@@ -86,7 +86,7 @@ services:
    depends_on:
       result:
         condition: service_started
-   command: ["sh", "-c", "curl --fail http://result:80 || exit 1"]
+   command: ["sh", "-c", "sleep 8 && curl --fail http://result:80 || exit 1"]
    networks:
       - front-tier
       - back-tier
