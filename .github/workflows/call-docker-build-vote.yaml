@@ -1,10 +1,11 @@
-name: Build Vote
+name: Vote Job Parallelization 
 
 on:
   # we want pull requests so we can build(test) but not push to image registry
   push:
     branches:
       - 'main'
+      - vote
     # only build when important files change
     paths:
       - 'vote/**'
@@ -16,70 +17,252 @@ on:
     paths:
       - 'vote/**'
       - '.github/workflows/call-docker-build-vote.yaml'
-  schedule:
-    # re-run montly to keep image fesh with upstream base images
-    - cron: '0 12 15 * *'
+  # schedule:
+  #   # re-run montly to keep image fesh with upstream base images
+  #   - cron: '0 12 15 * *'
 
 jobs:
-  call-docker-build:
 
-    name: Call Docker Build
+  build-test-image:
+    name: Building Image for testing
+    runs-on: ubuntu-latest
 
-    uses: bretfisher/docker-build-workflow/.github/workflows/reusable-docker-build.yaml@main
+    permissions:
+      packages: write 
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Setting up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to ghcr.io registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: ./vote
+          push: true         
+          tags: ghcr.io/wvrmhat/example-voting-app:${{ github.run_id }}
+          cache-from: type=gha 
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+
+  test-unit:
+    name: Unit tests
+    needs: [build-test-image]
+    runs-on: ubuntu-latest
+
+    permissions:
+      packages: read
+
+    steps:
+
+      - name: Login to ghcr.io registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Unit Testing in Docker
+        run: docker run --rm ghcr.io/wvrmhat/example-voting-app:"$GITHUB_RUN_ID" echo "Run test commands here"
+
+    
+  test-integration:
+    name: Integration testing in compose
+    needs: [build-test-image]
+    runs-on: ubuntu-latest
+
+    permissions:
+      packages: read
+
+    steps:
+
+      - name: Checkout git repo
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to ghcr.io registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Executing Postgres healthcheck
+      #   run: chmod +x ./healthchecks/postgres.sh 
+      
+      - name: Healthcheck in Docker Compose
+        run: |
+          export TESTING_IMAGE=ghcr.io/wvrmhat/example-voting-app:"$GITHUB_RUN_ID"
+          # echo Testing image: "$TESTING_IMAGE"
+          docker compose -f docker-compose.yml up --exit-code-from sut_vote 
+
+
+  test-k3d:
+    name: Test deployment in Kubernetes
+    needs: [build-test-image]
+    runs-on: ubuntu-latest
+
+    permissions:
+      packages: read
+
+    steps:
+
+      - name: Checkout git repo
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to ghcr.io registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   
+
+
+      - uses: AbsaOSS/k3d-action@v2
+        with:
+          cluster-name: "test-cluster-1"
+          args: >-
+            --agents 1
+            --no-lb
+            --k3s-arg "--no-deploy=traefik,servicelb,metrics-server@server:*"
+
+      - name: Smoke test deployment in k3d Kubernetes
+        run: |
+          # creating namespace 
+          kubectl create ns vote || true 
+
+          kubectl create secret docker-registry regcred \
+          --docker-server=https://ghcr.io \
+          --docker-username=${{ github.actor }} \
+          --docker-password=${{ secrets.GITHUB_TOKEN }} \
+          --namespace vote
+
+          export TESTING_IMAGE=ghcr.io/wvrmhat/example-voting-app:"$GITHUB_RUN_ID"
+          envsubst < k8s-specifications/vote-deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment vote -n vote 
+          kubectl exec deploy/vote -n vote -- curl --fail localhost:80
+        # for testing another time
+        # envsubst < k8s-specifications/vote-deployment.yaml | kubectl apply -f -
+        # kubectl rollout status deployment vote 
+        # kubectl exec deploy/vote --curl --fail localhost:80   
+              
+  cve-scanning:
+    name: Scanning image with Trivy
+    needs: [build-test-image]
+    runs-on: ubuntu-latest
 
     permissions:
       contents: read
-      packages: write # needed to push docker image to ghcr.io
-      pull-requests: write # needed to create and update comments in PRs
-    
-    secrets:
+      packages: read
+      security-events: write
 
-      # Only needed if with:dockerhub-enable is true below
-      dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps: 
+      - name: Checkout git repo
+        uses: actions/checkout@v4
+            
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_TOKEN }}
+                
+      - name: Login to ghcr.io registry
+        uses: docker/login-action@v3
+        with:
+            registry: ghcr.io
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}      
+            
+      - name: Pull image to scan 
+        run: docker pull ghcr.io/wvrmhat/example-voting-app:"$GITHUB_RUN_ID"
 
-      # Only needed if with:dockerhub-enable is true below
-      dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Running Trivvy for all CVEs (non-blocking)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/wvrmhat/example-voting-app:${{ github.run_id }}
+          format: table
+          exit-code: 0
 
-    with:
-      
-      ### REQUIRED
-      ### ENABLE ONE OR BOTH REGISTRIES
-      ### tell docker where to push.
-      ### NOTE if Docker Hub is set to true, you must set secrets above and also add account/repo/tags below
-      dockerhub-enable: true
-      ghcr-enable: true
+  building-final-image:
+      name: Build Final Image
+      needs: [test-unit, test-integration, test-k3d, cve-scanning]
+      runs-on: ubuntu-latest
 
-      ### REQUIRED 
-      ### A list of the account/repo names for docker build. List should match what's enabled above
-      ### defaults to:
-      image-names: |
-        bretfisher/examplevotingapp_vote
-        ghcr.io/bretfisher/example-voting-app-vote
+      permissions:
+        packages: write
+        pull-requests: write 
 
-      ### REQUIRED set rules for tagging images, based on special action syntax:
-      ### https://github.com/docker/metadata-action#tags-input
-      ### defaults to:
-      # tag-rules: |
-      #   type=raw,value=latest,enable=${{ endsWith(github.ref, github.event.repository.default_branch) }}
-      #   type=ref,event=pr
-      #   type=ref,event=branch
-      #   type=semver,pattern={{version}}
-      #   type=raw,value=gha-${{ github.run_id }}
-      
-      ### path to where docker should copy files into image
-      ### defaults to root of repository (.)
-      context: "{{defaultContext}}:vote"
-      
-      ### Dockerfile alternate name. Default is Dockerfile (relative to context path)
-      # file: Containerfile
+      steps:
 
-      ### build stage to target, defaults to empty, which builds to last stage in Dockerfile
-      # target:
-      
-      ### platforms to build for, defaults to linux/amd64
-      ### other options: linux/amd64,linux/arm64,linux/arm/v7
-      platforms: linux/amd64,linux/arm64,linux/arm/v7
-      
-      ### Create a PR comment with image tags and labels
-      ### defaults to false
-      # comment-enable: false
+        - name: Set up QEMU
+          uses: docker/setup-qemu-action@v3
+
+        - name: Checkout repository
+          uses: actions/checkout@v4
+
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@v3
+
+        - name: Login to Docker Hub
+          uses: docker/login-action@v3
+          with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_TOKEN }}
+ 
+        - name: Login to ghcr.io registry
+          uses: docker/login-action@v3
+          with:
+            registry: ghcr.io
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+
+        - name: Docker Metadata for Final Image Build
+          id: docker_meta
+          uses: docker/metadata-action@v5
+          with:
+            images: wvrmhat/example-voting-app,ghcr.io/wvrmhat/example-voting-app
+            flavor: |
+              latest=false
+            tags: |
+              type=raw,value=vote_test
+
+        - name: Docker Build and Push to GHCR and Docker Hub
+          uses: docker/build-push-action@v6
+          with: 
+                context: ./vote
+                push: true
+                tags: ${{ steps.docker_meta.outputs.tags }}
+                labels: ${{ steps.docker_meta.outputs.labels }}
+                cache-from: type=gha
+                cache-to: type=gha, mode=max
+                platforms: linux/amd64,linux/arm64
+
