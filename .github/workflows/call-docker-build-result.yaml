@@ -163,9 +163,9 @@ jobs:
           kubectl create secret docker-registry regcred \
           --docker-server=https://ghcr.io \
           --docker-username=${{ github.actor }} \
-          --docker-password=${{ secrets.GITHUB_TOKEN }}
+          --docker-password=${{ secrets.GITHUB_TOKEN }} \
           --namespace vote
-          
+
           export TESTING_IMAGE=ghcr.io/wvrmhat/example-voting-app:"$GITHUB_RUN_ID"
           envsubst < k8s-specifications/result-deployment.yaml | kubectl apply -f -
           kubectl rollout status deployment result -n vote 
