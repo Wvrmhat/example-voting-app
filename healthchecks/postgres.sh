@@ -14,8 +14,13 @@ args=(
 	--quiet --no-align --tuples-only
 )
 
-if select="$(echo 'SELECT 1' | psql "${args[@]}")" && [ "$select" = '1' ]; then
-	exit 0
-fi
+for i in {1..5}; do
+	if select="$(echo 'SELECT 1' | psql "${args[@]}")" && [ "$select" = '1' ]; then
+		exit 0
+	fi
+	echo "Attempt  $i/5 failed. Retrying in 2 seconds..."
+	sleep 2
+	
+done
 
 exit 1
